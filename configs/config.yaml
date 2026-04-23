@@ -1,0 +1,81 @@
+# =============================================================================
+# configs/config.yaml
+# Konfigurasi terpusat seluruh project ERT surrogate inversion.
+# Semua script membaca file ini — jangan ubah nilai di script secara langsung.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# DOMAIN FISIKA ERT
+# -----------------------------------------------------------------------------
+domain:
+  xmin: -58.5
+  xmax:  58.5
+  zmin: -20.0
+  zmax:   0.0
+  n_electrodes: 48
+  scheme: "wa"            # Wenner-Alpha
+  rho_min:   0.5          # batas bawah resistivitas (Ohm.m)
+  rho_max: 450.0          # batas atas  resistivitas (Ohm.m)
+
+# -----------------------------------------------------------------------------
+# GRID CNN
+# -----------------------------------------------------------------------------
+grid:
+  nz: 40                  # resolusi vertikal
+  nx: 232                 # resolusi horizontal (dihitung otomatis dari domain)
+
+# -----------------------------------------------------------------------------
+# DATASET
+# -----------------------------------------------------------------------------
+dataset:
+  n_train: 4000
+  n_val:   1142
+  n_test:   572
+  mode_ratio: [2, 3, 5]   # rasio mode A : B : C
+  noise_level_min: 0.02
+  noise_level_max: 0.10
+  noise_abs_min: 1.0e-6
+  noise_abs_max: 5.0e-4
+  raw_dir:       "data/raw_pygimli"
+  processed_dir: "data/processed"
+
+# -----------------------------------------------------------------------------
+# SURROGATE FORWARD MODEL  (f_theta)
+# -----------------------------------------------------------------------------
+surrogate:
+  # Arsitektur: MLP sederhana, input=grid model, output=vektor rhoa
+  input_dim:  9280        # NZ * NX = 40 * 232 (model diratakan)
+  hidden_dims: [1024, 512, 256]
+  output_dim: 360         # jumlah konfigurasi Wenner-Alpha untuk 48 elektroda
+  dropout: 0.1
+  # Training surrogate
+  epochs:        100
+  batch_size:    32
+  learning_rate: 1.0e-3
+  patience:      20
+  save_path:     "models/saved/surrogate_best.keras"
+  history_path:  "models/saved/surrogate_history.pkl"
+
+# -----------------------------------------------------------------------------
+# CNN INVERSION  (g_phi)
+# -----------------------------------------------------------------------------
+inversion:
+  input_shape: [40, 232, 1]
+  base_filters: 16
+  dropout_bottleneck: 0.3
+  # Training inversion
+  epochs:          100
+  batch_size:        4
+  learning_rate:  1.0e-4
+  patience:         20
+  lambda_data:     1.0    # bobot L_data  = MSE(m_pred, m_true)
+  lambda_physics:  0.1    # bobot L_phys  = MSE(d_pred, d_obs)
+  save_path:       "models/saved/inversion_best.keras"
+  history_path:    "models/saved/inversion_history.pkl"
+
+# -----------------------------------------------------------------------------
+# EVALUASI
+# -----------------------------------------------------------------------------
+evaluate:
+  results_dir: "results"
+  n_samples_plot: 5       # jumlah sampel yang divisualisasikan

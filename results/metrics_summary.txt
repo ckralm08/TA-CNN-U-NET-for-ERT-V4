@@ -1,0 +1,10 @@
+ERT Surrogate Inversion -- Test Set Metrics
+==================================================
+mse_model           : 0.000791
+mae_model           : 0.011176
+rmse_model          : 0.025740
+r2_model            : 0.625544
+rel_err_model       : 1.773667
+ssim                : 0.844056
+mse_data            : 0.001912
+rel_err_data        : 5.085526
