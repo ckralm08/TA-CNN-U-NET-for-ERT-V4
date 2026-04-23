@@ -27,7 +27,8 @@ forward model (MLP residual) yang terlatih.
 10. [Inferensi dan evaluasi model](#10-inferensi-dan-evaluasi-model)
 11. [Troubleshooting](#11-troubleshooting)
 12. [Catatan penting](#12-catatan-penting)
-
+13. [Refrensi](#13.-refrensi)
+14. [Catatan pembuat](#14-catatan-pembuat)
 ---
 
 ## 1. Deskripsi Singkat
@@ -41,44 +42,28 @@ Metode : Pipeline dua tahap
   Tahap 2 — Latih CNN inversion            g_phi   : d  -->  m
              dengan physics loss melalui f_theta yang sudah terlatih
 ```
-
-Perbedaan utama dari pendekatan physics-driven sebelumnya (subprocess PyGIMLi):
-
-| Aspek | Pendekatan lama (subprocess) | Pendekatan baru (surrogate) |
-|---|---|---|
-| Differentiability | Tidak — gradien L_phys terputus | Ya — gradien mengalir penuh |
-| Kecepatan | Lambat (detik per batch) | Cepat (milidetik per batch) |
-| Environment | Dua proses terpisah | Satu environment TensorFlow |
-| Akurasi fisika | Eksak (PyGIMLi) | Aproksimasi (MLP) |
-
----
-
 ## 2. Konsep dan Teori Kerja Metode
 
 ### 2.1 Masalah inversi ERT
 
-ERT (*Electrical Resistivity Tomography*) adalah metode geofisika yang
-mengukur distribusi resistivitas bawah permukaan. Prinsip dasarnya mengikuti
-**hukum Ohm dalam medium kontinu**: arus listrik I diinjeksikan melalui dua
-elektroda di permukaan, beda potensial ΔV diukur pada pasangan elektroda lain,
-dan resistivitas semu (apparent resistivity) dihitung sebagai:
+ERT (*Electrical Resistivity Tomography*) adalah metode geofisika yang mengukur distribusi resistivitas bawah permukaan. Prinsip dasarnya mengikuti hukum Ohm dalam medium homogen, di mana arus listrik I diinjeksikan melalui dua elektroda arus di permukaan, kemudian beda potensial ΔV diukur pada pasangan elektroda potensial. Berdasarkan pengukuran tersebut,  apparent resistivity (*resistivitas semu*) dapat dihitung menggunakan persamaan:
 
 ```
 rho_a = K * (delta_V / I)
 ```
+di mana K merupakan faktor geometri yang bergantung pada konfigurasi elektroda yang digunakan. Sebagai contoh, pada konfigurasi Wenner-Alpha, dengan spasi elektroda a, faktor geometrinya adalah K=2πa. Nilai resistivitas semu ρa	​yang diperoleh tidak langsung merepresentasikan kondisi resistivitas sebenarnya di bawah permukaan, melainkan merupakan respon rata-rata dari distribusi resistivitas yang kompleks. Oleh karena itu, data ρa biasanya divisualisasikan dalam bentuk pseudosection, dengan kedalaman semu yang secara empiris didekati menggunakan hubungan z=−0.519⋅a.
 
-di mana K adalah faktor geometri elektroda. Untuk skema **Wenner-Alpha** dengan
-spasi elektroda a, faktor geometrinya adalah K = 2π·a. Nilai rho_a kemudian
-dipetakan ke koordinat pseudosection menggunakan kedalaman semu z = −0.519·a.
+Selanjutnya, data resistivitas semu tersebut digunakan sebagai input dalam proses inversi untuk memperoleh model resistivitas bawah permukaan yang lebih mendekati kondisi sebenarnya. Proses ini melibatkan penyelesaian forward problem, yaitu mensimulasikan respon potensial listrik berdasarkan model resistivitas tertentu.  Serta inverse problem, yaitu proses menyesuaikan model agar respon hasil simulasi mendekati data observasi.
 
-Masalah inversi ERT — yaitu mencari distribusi resistivitas m dari data
-pengukuran d — bersifat **ill-posed**: banyak model m yang dapat menghasilkan
-data d yang hampir sama. Karena itu solusi inversi membutuhkan regularisasi
-tambahan untuk memilih solusi yang paling konsisten secara fisika.
+Masalah inversi ERT merupakan masalah yang bersifat ill-posed, artinya solusi yang diperoleh tidak unik dan sensitif terhadap noise pada data. Banyak model resistivitas m yang dapat menghasilkan data pengukuran d yang hampir identik. Oleh karena itu, diperlukan pendekatan regularisasi untuk menstabilkan solusi. Secara matematis, inversi dilakukan dengan meminimalkan fungsi objektif yang terdiri dari dua komponen utama, yaitu misfit data dan constraint model:
+```
+Φ(m)=∥dobs−F(m)∥^2 + λ ∥L(m)∥^2
+```
+di mana F(m) adalah operator forward, λ adalah parameter regularisasi, dan L adalah operator yang mengontrol kekasaran model (misalnya smoothing). Dengan pendekatan ini, model yang dihasilkan tidak hanya cocok terhadap data observasi tetapi juga tetap realistis secara geologi.
 
 ### 2.2 Normalisasi logaritmik
 
-Resistivitas tanah memiliki rentang yang sangat lebar ([0.5, 450] Ohm·m).
+Resistivitas tanah memiliki rentang yang sangat lebar (misal:[0.5, 450] Ohm·m).
 Normalisasi logaritmik menekan rentang ini ke [0, 1] agar MSE bermakna
 proporsional di seluruh rentang nilai:
 
@@ -88,14 +73,16 @@ x_norm = (log10(rho) - log10(rho_min)) / (log10(rho_max) - log10(rho_min))
 Dengan: rho_min = 0.5 Ohm.m,  rho_max = 450 Ohm.m
 ```
 
-Normalisasi ini diterapkan secara identik pada: (1) pseudosection input CNN,
-(2) label model resistivitas, dan (3) vektor d_obs yang menjadi target
-surrogate — sehingga semua MSE membandingkan besaran dalam skala yang sama.
+Normalisasi ini diterapkan secara identik pada: 
+(1) pseudosection input CNN,
+(2) label model resistivitas, dan 
+(3) vektor d_obs yang menjadi target
+surrogate. Sehingga semua MSE membandingkan besaran dalam skala yang sama.
 
 ### 2.3 Surrogate forward model  f_theta
 
 Surrogate adalah MLP residual yang dilatih untuk meniru perilaku forward
-modeling ERT (PyGIMLi). Ia memetakan model resistivitas yang diratakan ke
+modeling ERT (PyGIMLi). Ia memetakan model resistivitas yang di - *flatten* ke
 vektor apparent resistivity:
 
 ```
@@ -121,7 +108,7 @@ L_surrogate = MSE(d_true, f_theta(m))
 
 ### 2.4 CNN inversion  g_phi dan physics-driven loss
 
-CNN inversion menggunakan arsitektur **U-Net** dengan encoder–bottleneck–decoder
+CNN inversion menggunakan arsitektur **U-Net** yang terdiri dari proses encoder–bottleneck–decoder
 dan skip connections untuk memetakan pseudosection ke model resistivitas:
 
 ```
@@ -147,7 +134,7 @@ Total loss yang dioptimasi adalah:
 L_total = lambda_data * L_data + lambda_phys * L_phys
 
 L_data = MSE(m_true, m_pred)          -- domain model (rekonstruksi)
-L_phys = MSE(d_obs,  d_pred)          -- domain data  (konsistensi fisika)
+L_phys = MSE(d_obs,  d_pred)          -- domain data  (fisika)
 
 lambda_data  = 1.0  (bobot domain model)
 lambda_phys  = 0.1  (bobot domain data)
@@ -157,7 +144,7 @@ lambda_phys  = 0.1  (bobot domain data)
 **L_phys** memastikan model yang dihasilkan, jika disimulasikan kembali melalui
 forward modeling (via surrogate), menghasilkan data yang konsisten dengan data
 observasi. Gabungan keduanya mendorong CNN menemukan solusi inversi yang
-sekaligus akurat dan fisikis konsisten.
+sekaligus akurat dan konsisten secara fisika.
 
 ### 2.5 Optimisasi Adam
 
@@ -217,8 +204,8 @@ project/
 |
 +-- scripts/
 |   +-- generate_dataset.py      # [env PyGIMLi] Pembangkit dataset
-|   +-- train_forward.py         # [env TF] Latih surrogate f_theta
-|   +-- train_inversion.py       # [env TF] Latih CNN inversion g_phi
+|   +-- train_forward.py         # [env TF] *Train* surrogate f_theta
+|   +-- train_inversion.py       # [env TF] *Train* CNN inversion g_phi
 |   +-- evaluate.py              # [env TF] Evaluasi dan visualisasi
 |
 +-- utils/
@@ -240,7 +227,7 @@ project/
 
 | Komponen | Minimum | Direkomendasikan |
 |---|---|---|
-| OS | Windows 10, Linux, macOS | Linux / Windows 11 |
+| OS | Windows 10 | Windows 11 |
 | Python | 3.10 | 3.10 |
 | RAM | 8 GB | 16 GB |
 | Disk | 5 GB | 10 GB |
@@ -261,9 +248,10 @@ tidak dapat diinstal dalam satu environment yang sama:
 
 ### 5.1 Environment PyGIMLi (`env_pygimli`)
 
-```bash
+```python
 # Buat environment
 conda create -n env_pygimli -c gimli -c conda-forge pygimli python=3.10 -y
+#untuk mengaktifkan enviroment
 conda activate env_pygimli
 
 # Dependensi tambahan
@@ -275,7 +263,7 @@ python -c "import pygimli; print('PyGIMLi OK:', pygimli.__version__)"
 
 ### 5.2 Environment TensorFlow (`env_tf`)
 
-```bash
+```python
 # Buat environment (JANGAN install PyGIMLi di sini)
 conda create -n env_tf python=3.10 -y
 conda activate env_tf
@@ -291,22 +279,22 @@ python -c "import tensorflow as tf; print('GPU:', tf.config.list_physical_device
 ```
 
 > **Catatan:** Jangan menginstal PyGIMLi di `env_tf` atau TensorFlow di
-> `env_pygimli` — keduanya konflik dan akan menyebabkan error saat import.
+> `env_pygimli` keduanya konflik dan akan menyebabkan error saat import.
 
 ---
 
-## 6. Cara Penggunaan Langkah demi Langkah
+## 6. Cara Penggunaan
 
-### Langkah 1 — Siapkan struktur folder
+### 1. Siapkan struktur folder
 
-Ekstrak project ke satu folder, pastikan struktur seperti di bagian 3.
-Semua perintah dijalankan dari root folder project.
+Silakan anda unduh file pada Github ini kemudian pastikan struktur file seperti di bagian 3.
+Nantinya semua perintah dijalankan dari root folder project.
 
-### Langkah 2 — Generate dataset sintetik
+### 2. Generate dataset sintetik
 
 Jalankan di environment **PyGIMLi**:
 
-```bash
+```python
 conda activate env_pygimli
 cd project/
 python scripts/generate_dataset.py
@@ -328,22 +316,19 @@ NZ=40  NX=232  N_ELECS=48
 ...
 ```
 
-> Proses ini memakan waktu beberapa jam. Gunakan
-> `nohup python scripts/generate_dataset.py &` di Linux agar tetap
-> berjalan saat terminal ditutup.
+> Proses ini memakan waktu beberapa puluh menit.Pastikan perangkat anda tetap menyala.
 
 **Penting:** Setiap sampel menghasilkan tiga file:
-- `X_xxxx.npy` — pseudosection grid 40×232, input CNN
-- `y_xxxx.npy` — true model grid 40×232, label CNN
-- `d_xxxx.npy` — vektor rhoa 360 nilai, label surrogate
+- `X_xxxx.npy`-> pseudosection grid 40×232, input CNN
+- `y_xxxx.npy` —> true model grid 40×232 sbagai label CNN
+- `d_xxxx.npy` —> vektor rhoa 360 nilai sebagai label surrogate
 
-### Langkah 3 — Latih surrogate forward model
+### 3. Latih surrogate forward model
 
 Jalankan di environment **TensorFlow**:
 
-```bash
-conda activate env_tf
-cd project/
+```python
+env_tf\Scripts\activate
 python scripts/train_forward.py
 ```
 
@@ -371,11 +356,11 @@ Output yang diharapkan:
   best_val   : 0.087612  patience=0/20
 ```
 
-### Langkah 4 — Latih CNN inversion
+### 4. Latih CNN inversion
 
 Jalankan di environment **TensorFlow** setelah Langkah 3 selesai:
 
-```bash
+```python
 python scripts/train_inversion.py
 ```
 
@@ -409,7 +394,7 @@ Output yang diharapkan:
   ...
 ```
 
-### Langkah 5 — Evaluasi model
+### 5. Evaluasi model
 
 ```bash
 python scripts/evaluate.py
@@ -422,7 +407,7 @@ Menghasilkan laporan metrik dan visualisasi di folder `results/`.
 ## 7. Konfigurasi Parameter
 
 Semua parameter dikonfigurasi di satu file: `configs/config.yaml`.
-**Jangan** mengedit nilai di dalam script secara langsung.
+**Jangan** mengedit nilai di dalam script secara langsung. Hal ini bertujuan agar semua paramater termanajemen dengan baik, sehingga meminimalisisr adanya error disebabkan perbedaan parameter. 
 
 ### Domain fisika
 
@@ -437,11 +422,10 @@ domain:
   rho_min:   0.5     # batas bawah normalisasi (Ohm.m)
   rho_max: 450.0     # batas atas normalisasi (Ohm.m)
 ```
-
+# PENTING!!!
 > Jika `n_electrodes` diubah, `output_dim` di bagian surrogate harus
 > diperbarui secara manual menggunakan rumus:
-> `n_data = sum_{a=1}^{floor((N-1)/3)} (N - 3a)`
-
+![alt text]({4163B604-6C89-4506-92AD-69C9EA577DCF}.png)
 ### Grid CNN
 
 ```yaml
@@ -491,26 +475,9 @@ inversion:
   learning_rate: 1.0e-4
   patience:     20
   lambda_data:  1.0        # bobot L_data
-  lambda_phys:  0.1        # bobot L_phys, mulai kecil lalu naikkan
+  lambda_phys:  0.1        # bobot L_phys
 ```
 
-### Cara menentukan lambda_phys
-
-Lambda yang memberikan kontribusi seimbang antara L_data dan L_phys dapat
-diperkirakan dari nilai loss epoch awal:
-
-```
-lambda_optimal = L_data / L_phys
-Contoh: L_data=0.038, L_phys=0.066  ->  lambda = 0.038/0.066 = 0.58
-```
-
-Namun disarankan memulai dengan nilai kecil dan menaikkan bertahap:
-
-```
-Epoch 1-20  : lambda_phys = 0.01
-Epoch 21-40 : lambda_phys = 0.05
-Epoch 41+   : lambda_phys = 0.1 -- 0.5 (sesuaikan dengan val_data)
-```
 
 ---
 
@@ -660,20 +627,20 @@ Contoh tampilan:
 | `kontrib_d` | Kontribusi nyata L_data ke total loss = lam_data * L_data |
 | `kontrib_p` | Kontribusi nyata L_phys ke total loss = lam_phys * L_phys |
 | `val_total` | Total loss pada data validasi |
-| `val_data` | L_data validasi — penentu checkpoint model terbaik |
-| `val_phys` | L_phys validasi — menggunakan surrogate yang sama |
+| `val_data` | L_data validasi —> penentu checkpoint model terbaik |
+| `val_phys` | L_phys validasi —> menggunakan surrogate yang sama |
 | `val_mae` | Mean Absolute Error validasi domain model |
-| `gap` | val_data - train_data — indikator overfitting |
+| `gap` | val_data - train_data —> indikator overfitting |
 
 ### 9c. Memahami validasi
 
-Validasi menggunakan **1.142 sampel** yang tidak pernah dilihat model saat
-training. Fungsinya adalah mengukur kemampuan generalisasi — seberapa baik
-model bekerja pada data baru.
+Validasi dilakukan menggunakan sampel data yang tidak pernah digunakan selama proses pelatihan (training). 
+Tujuannya adalah untuk mengevaluasi kemampuan generalisasi model, yaitu sejauh mana model mampu memberikan 
+prediksi yang akurat pada data baru yang belum pernah dilihat sebelumnya.
 
 **Metrik penentu checkpoint:** `val_data` (MSE rekonstruksi pada data
 validasi). Bukan `val_total` karena l_phys dihitung melalui surrogate yang
-bobotnya tidak berubah — sehingga perbaikan `val_total` bisa berasal dari
+bobotnya tidak berubah. Sehingga perbaikan `val_total` bisa berasal dari
 l_phys yang membaik bukan karena CNN lebih baik.
 
 **Pola val_data yang sehat:**
@@ -704,11 +671,11 @@ Setiap epoch:
 
 Selalu gunakan `inversion_best.keras` untuk inferensi, bukan model terakhir.
 
-### 9d. Kondisi yang mungkin terjadi dan tindakan yang harus diambil
+### 9d. Kondisi yang mungkin terjadi dan tindakan yang dapat diambil
 
 ---
 
-**KONDISI 1 — Semua loss turun normal**
+**KONDISI 1 :Semua loss turun normal**
 
 ```
 train_data  : 0.034800  -0.002900  (-7.7%)  [v] |||  [TURUN SIGNIFIKAN]
@@ -721,7 +688,7 @@ Tindakan: lanjutkan training tanpa perubahan.
 
 ---
 
-**KONDISI 2 — train_data turun, val_data stagnan atau naik (overfitting)**
+**KONDISI 2: train_data turun, val_data stagnan atau naik (overfitting)**
 
 ```
 train_data  : 0.010200  -0.002100  (-17.1%)  [v] ||||||||  [TURUN SIGNIFIKAN]
@@ -751,7 +718,7 @@ model = tf.keras.models.load_model("models/saved/inversion_best.keras")
 
 ---
 
-**KONDISI 3 — Loss stagnan sejak awal, hampir tidak turun**
+**KONDISI 3 : Loss stagnan sejak awal, hampir tidak turun**
 
 ```
 train_data  : 0.089100  -0.000050  (-0.1%)  [v] .  [STAGNAN]
@@ -780,7 +747,7 @@ inversion:
 
 ---
 
-**KONDISI 4 — train_phys naik sementara train_data turun**
+**KONDISI 4 : train_phys naik sementara train_data turun**
 
 ```
 train_data  : 0.028000  -0.003000  (-9.7%)  [v] ||||  [TURUN SIGNIFIKAN]
@@ -813,7 +780,7 @@ print('d_obs shape:', d.shape)
 
 ---
 
-**KONDISI 5 — Loss meledak (gradient explosion)**
+**KONDISI 5 : Loss meledak (gradient explosion)**
 
 ```
 train_total : 4523.812300  +4510.000000  (99.7%)  [^] ||||||||||||||||||||  [NAIK -- periksa!]
@@ -836,7 +803,7 @@ inversion:
 
 ---
 
-**KONDISI 6 — Early stopping aktif terlalu cepat**
+**KONDISI 6 : Early stopping aktif terlalu cepat**
 
 ```
 best val    : 0.035200  patience=20/20
@@ -1159,20 +1126,19 @@ berbeda.
 
 ---
 
-## Referensi Singkat Perintah
+## 13. Referensi
+Shahriari,M.,(2020) A Deep Neural Network as Surrogate Model for Forward Simulation of Borehole Resistivity Measurements, Elsevier https://www.sciencedirect.com/science/article/pii/S2351978920306399?via%3Dihub
 
-```bash
-# 1. Generate dataset
-conda activate env_pygimli
-python scripts/generate_dataset.py
+Liu,Bin.,dkk.,(2020),Deep Learning Inversion of Electrical Resistivity Data, IEEE
+https://ieeexplore.ieee.org/document/8994191
 
-# 2. Latih surrogate
-conda activate env_tf
-python scripts/train_forward.py
+Liu,Bin.,dkk.,(2023),Physics-Driven Deep Learning Inversion for Direct Current Resistivity Survey Data, IEEE
+https://ieeexplore.ieee.org/document/10091223
 
-# 3. Latih CNN inversion
-python scripts/train_inversion.py
 
-# 4. Evaluasi
-python scripts/evaluate.py
-```
+
+## 14. Catatan pembuat
+Skrip ini masih berada dalam tahap uji coba dan pengembangan. Hasil analisis serta rekomendasi tindakan yang disajikan 
+masih bersifat hipotesis, yang diperoleh melalui proses *trial and error* selama penyusunan skrip. Apabila Anda memiliki 
+saran, masukan, atau ingin berdiskusi lebih lanjut, silakan menghubungi pembuat melalui alamat email berikut: cakraalam08@gmail.com
+
