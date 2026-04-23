@@ -89,13 +89,6 @@ vektor apparent resistivity:
 f_theta : m_flat (NZ*NX = 9280)  -->  d_pred (n_data = 360)
 ```
 
-Jumlah konfigurasi Wenner-Alpha untuk 48 elektroda dihitung dengan rumus:
-
-```
-n_data = sum_{a=1}^{floor((N-1)/3)} (N - 3a)
-       = sum_{a=1}^{15} (48 - 3a)
-       = 45 + 42 + 39 + ... + 3 = 360
-```
 
 Surrogate menggunakan **residual blocks** dengan `LayerNormalization` dan
 skip connections untuk memastikan gradien mengalir dengan baik saat
