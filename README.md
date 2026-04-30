@@ -1,7 +1,7 @@
-# ERT Surrogate Physics-Driven CNN Inversion
+# ERT Surrogate Physics Guide CNN Inversion
 
 Sistem inversi data *Electrical Resistivity Tomography* (ERT) berbasis
-*Convolutional Neural Network* (U-Net) dengan *Surrogate Physics-Driven Loss*.
+*Convolutional Neural Network* (U-Net) dengan *Surrogate Physics Guide Loss*.
 Model CNN dilatih untuk memprediksi distribusi resistivitas bawah permukaan
 dari data *apparent resistivity* pseudosection, dengan kendala konsistensi
 fisika ERT yang dihitung secara *fully differentiable* melalui surrogate
